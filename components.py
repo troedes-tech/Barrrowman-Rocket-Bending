@@ -5,6 +5,7 @@ class nosecone_vk:
         self.radius = radius
         self.length = length
         self.area_l = np.pi*radius**2
+        self.area_0 = 0
         self.cl = None
 
         # Volume
@@ -19,7 +20,7 @@ class nosecone_vk:
         return r
 
 
-class body_tube:
+class tube:
     def __init__(self, radius, length):
         self.radius = radius
         self.length = length
@@ -34,6 +35,7 @@ class nosecone_ogive:
         self.radius = radius
         self.length = length
         self.area_l = np.pi*radius**2
+        self.area_0 = 0
         self.cl = None
         self.shape_factor = shape_factor
 
@@ -55,6 +57,7 @@ class transition_ogive:
     def __init__(self, radius_0, radius_l, length):
         self.radius_0 = radius_0
         self.radius_l = radius_l
+        self.radius = radius_l
         self.length = length
         self.area_l = np.pi*radius_l**2
         self.area_0 = np.pi*radius_0**2
@@ -79,6 +82,7 @@ class boattail:
     def __init__(self, radius_0, radius_l, length):
         self.radius_0 = radius_0
         self.radius_l = radius_l
+        self.radius = radius_0
         self.length = length
         self.area_0 = np.pi*radius_0**2
         self.area_l = np.pi*radius_l**2

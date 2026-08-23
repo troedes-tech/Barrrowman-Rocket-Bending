@@ -1,5 +1,5 @@
 import numpy as np
-from components.py import *
+from components import *
 
 class aerodynamics:
     def __init__(self,Aref):
@@ -39,5 +39,10 @@ class aerodynamics:
 
     def X_n(self, body):
         # function to find centre of pressure
-        X_n = (body.length*body.area_l-body.volume)/(body.area_l-body.area_0)
+        if body.area_l != body.area_0:
+            X_n = (body.length*body.area_l-body.volume)/(body.area_l-body.area_0)
+        else:
+            X_n = 0
         return X_n
+
+    

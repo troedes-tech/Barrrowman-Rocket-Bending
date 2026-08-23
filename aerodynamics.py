@@ -29,8 +29,8 @@ class aerodynamics:
 
     def X_lift(self, body):
         # function to find lift location
-        if body.cp is not None:
-            return body.cp
+        if body.cl is not None:
+            return body.cl
         else:
             x = np.linspace(0,body.length)
             y = x*2*body.r(x)

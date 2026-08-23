@@ -5,7 +5,7 @@ class nosecone_vk:
         self.radius = radius
         self.length = length
         self.area_l = np.pi*radius**2
-        self.cp = None
+        self.cl = None
 
         # Volume
         x = np.linspace(0,length)
@@ -26,7 +26,7 @@ class body_tube:
         self.area_l = np.pi*radius**2
         self.area_0 = np.pi*radius**2
         self.volume = np.pi*radius**2*length
-        self.cp = self.length/2
+        self.cl = self.length/2
 
 
 class nosecone_ogive:
@@ -34,12 +34,12 @@ class nosecone_ogive:
         self.radius = radius
         self.length = length
         self.area_l = np.pi*radius**2
-        self.cp = None
+        self.cl = None
         self.shape_factor = shape_factor
 
         # Volume
         x = np.linspace(0,length)
-        self.rho = (radius+(length**2)/radius)/shape_factor
+        self.rho = ((radius**2)+(length**2))/(2*radius*shape_factor)
         self.alpha = np.atan(radius/length)-np.arccos(np.sqrt(radius**2+length**2)/2*self.rho)
         y = np.sqrt(self.rho**2-(x-self.rho*np.cos(self.alpha))**2)+self.rho*np.sin(self.alpha)
         integral = np.trapezoid(y,x)
@@ -50,7 +50,40 @@ class nosecone_ogive:
         r = np.sqrt(self.rho**2-(x-self.rho*np.cos(self.alpha))**2)+self.rho*np.sin(self.alpha)
         return r
 
-    
+class transition_ogive:
+    #is assumed to be tangent ogive
+    def __init__(self, radius_0, radius_l, length):
+        self.radius_0 = radius_0
+        self.radius_l = radius_l
+        self.length = length
+        self.area_l = np.pi*radius_l**2
+        self.area_0 = np.pi*radius_0**2
+        self.cl = None
+
+        self.cutoff = -length-np.sqrt(-((length**2+radius_0*(radius_0-radius_l))*(radius_0-radius_l)*radius_l))/(radius_0-radius_l)
+        
+        # Volume
+        x = np.linspace(self.cutoff,self.cutoff+length)
+        self.rho = ((radius_l**2)+(length**2))/(2*radius_l)
+        y = np.sqrt(self.rho**2-(x-self.length)**2)+self.radius_l-self.rho
+        integral = np.trapezoid(y,x)
+        self.volume = 2*np.pi*integral
+
+    def r(self,x):
+        # function to find radius at a given x location
+        r = np.sqrt(self.rho**2-((x+self.cutoff)-self.length)**2)+self.radius_l-self.rho
+        return r
+
+
+class boattail:
+    def __init__(self, radius_0, radius_l, length):
+        self.radius_0 = radius_0
+        self.radius_l = radius_l
+        self.length = length
+        self.area_0 = np.pi*radius_0**2
+        self.area_l = np.pi*radius_l**2
+        self.volume = np.pi*length*(radius_0**2 + radius_0*radius_l + radius_l**2)/3
+        self.cl = (radius_0+2*radius_l)*length/(6*radius_0)
 
 
     

@@ -91,7 +91,7 @@ class boattail:
 
 
 class fin:
-    def __init__(self, root_chord, tip_chord, span, sweep_length):
+    def __init__(self, root_chord, tip_chord, span, sweep_length, location):
         self.root_chord = root_chord
         self.tip_chord = tip_chord
         self.span = span
@@ -99,17 +99,33 @@ class fin:
         self.area = (root_chord+tip_chord)*span/2
         self.ar = 2*self.area*self.span**2
         self.Lc = np.atan2(0.5*root_chord+sweep_length-0.5*tip_chord,span)
+        self.location = location #location of top of part from top of rocket #TODO do for all parts
 
-    def cp(self, mach):
+    def cp(self, mach): #TODO move to aerodynamics
         # function to find centre of pressure of a fin
         y = (self.span/3)*(self.root_chord+2*self.tip_chord)/(self.root_chord+self.tip_chord)
         x = (self.sweep_length/3)*(self.root_chord+2*self.tip_chord)/(self.root_chord+self.tip_chord)+(self.root_chord**2+self.root_chord*self.tip_chord+3*self.tip_chord**2)/(6*(self.root_chord+self.tip_chord))
         if mach < 0.5:
-            return x,y
+            return [x,y]
         else:
             beta = np.sqrt(np.abs(1-mach**2))
             f = (self.ar*beta-0.67)/(2*self.ar*beta-1)
             x = f*x
-            return x,y
+            return [x,y]
+
+
+class rocket:
+    def __init__(self, fins, fin_tube, parts):
+        self.fins = fins
+        self.fin_tube = fin_tube
+        self.parts = parts
+        
+        self.length = 0
+        for part in self.parts:
+            self.length += part.length
+
+
+    
+
 
 

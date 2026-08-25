@@ -8,11 +8,11 @@ class nosecone_vk:
         self.area_0 = 0
         self.cl = None
 
-        # Volume
+        # Volume and Surface Area
         x = np.linspace(0,length)
-        y = np.sqrt(np.acos(1-2*x/length)-0.5*np.sin(2*np.acos(1-2*x/length)))
-        integral = np.trapezoid(y,x)
-        self.volume = 2*np.sqrt(np.pi)*integral*self.radius**2
+        r = self.radius*np.sqrt(np.acos(1-2*x/self.length)-0.5*np.sin(2*np.acos(1-2*x/self.length))/np.pi)
+        self.volume = np.pi*np.trapezoid(r**2,x)
+        self.Awet = 2*np.pi*np.trapezoid(r,x)   # Surface Area
 
     def r(self,x):
         # function to find radius at a given x location
@@ -27,6 +27,7 @@ class tube:
         self.area_l = np.pi*radius**2
         self.area_0 = np.pi*radius**2
         self.volume = np.pi*radius**2*length
+        self.Awet = 2*np.pi*radius*length
         self.cl = self.length/2
 
 
@@ -39,13 +40,13 @@ class nosecone_ogive:
         self.cl = None
         self.shape_factor = shape_factor
 
-        # Volume
+        # Volume and Surface Area
         x = np.linspace(0,length)
         self.rho = ((radius**2)+(length**2))/(2*radius*shape_factor)
         self.alpha = np.atan(radius/length)-np.arccos(np.sqrt(radius**2+length**2)/2*self.rho)
-        y = np.sqrt(self.rho**2-(x-self.rho*np.cos(self.alpha))**2)+self.rho*np.sin(self.alpha)
-        integral = np.trapezoid(y,x)
-        self.volume = 2*np.pi*integral
+        r = np.sqrt(self.rho**2-(x-self.rho*np.cos(self.alpha))**2)+self.rho*np.sin(self.alpha)
+        self.volume = np.pi*np.trapezoid(r**2,x)
+        self.Awet = 2*np.pi*np.trapezoid(r,x)   # Surface Area
 
     def r(self,x):
         # function to find radius at a given x location
@@ -68,9 +69,9 @@ class transition_ogive:
         # Volume
         x = np.linspace(self.cutoff,self.cutoff+length)
         self.rho = ((radius_l**2)+(length**2))/(2*radius_l)
-        y = np.sqrt(self.rho**2-(x-self.length)**2)+self.radius_l-self.rho
-        integral = np.trapezoid(y,x)
-        self.volume = 2*np.pi*integral
+        r = np.sqrt(self.rho**2-((x+self.cutoff)-self.length)**2)+self.radius_l-self.rho
+        self.volume = np.pi*np.trapezoid(r**2,x)
+        self.Awet = 2*np.pi*np.trapezoid(r,x)   # Surface Area
 
     def r(self,x):
         # function to find radius at a given x location
@@ -87,42 +88,53 @@ class boattail:
         self.area_0 = np.pi*radius_0**2
         self.area_l = np.pi*radius_l**2
         self.volume = np.pi*length*(radius_0**2 + radius_0*radius_l + radius_l**2)/3
+        self.Awet = np.pi*(radius_0+radius_l)*np.sqrt((radius_0-radius_l)**2+length**2)
         self.cl = (radius_0+2*radius_l)*length/(6*radius_0)
 
 
 class fin:
-    def __init__(self, root_chord, tip_chord, span, sweep_length, location):
+    def __init__(self, root_chord, tip_chord, span, sweep_length, thickness, location):
         self.root_chord = root_chord
         self.tip_chord = tip_chord
         self.span = span
         self.sweep_length = sweep_length
         self.area = (root_chord+tip_chord)*span/2
+        self.thickness = thickness
         self.ar = 2*self.area*self.span**2
         self.Lc = np.atan2(0.5*root_chord+sweep_length-0.5*tip_chord,span)
         self.location = location #location of top of part from top of rocket #TODO do for all parts
+        self.c_hat = np.sqrt((0.5*root_chord+sweep_length-0.5*tip_chord)**2+span**2)# mean aerodynamic chord length
 
     def cp(self, mach): #TODO move to aerodynamics
         # function to find centre of pressure of a fin
         y = (self.span/3)*(self.root_chord+2*self.tip_chord)/(self.root_chord+self.tip_chord)
-        x = (self.sweep_length/3)*(self.root_chord+2*self.tip_chord)/(self.root_chord+self.tip_chord)+(self.root_chord**2+self.root_chord*self.tip_chord+3*self.tip_chord**2)/(6*(self.root_chord+self.tip_chord))
-        if mach < 0.5:
-            return [x,y]
+        if mach < 2:
+            x = (self.sweep_length/3)*(self.root_chord+2*self.tip_chord)/(self.root_chord+self.tip_chord)+(self.root_chord**2+self.root_chord*self.tip_chord+3*self.tip_chord**2)/(6*(self.root_chord+self.tip_chord))
         else:
             beta = np.sqrt(np.abs(1-mach**2))
-            f = (self.ar*beta-0.67)/(2*self.ar*beta-1)
-            x = f*x
-            return [x,y]
+            x = (self.ar*beta-0.67)/(2*self.ar*beta-1)*self.c_hat
+        return [x,y]
 
 
 class rocket:
-    def __init__(self, fins, fin_tube, parts):
+    def __init__(self, fins, parts):
         self.fins = fins
-        self.fin_tube = fin_tube
         self.parts = parts
         
         self.length = 0
-        for part in self.parts:
+        self.max_diameter = 0
+        self.Awet_body = 0
+        for part in parts:
+            if self.length <= fins.location and fins.location <= self.length + part.length:
+                self.fin_tube = part
             self.length += part.length
+            self.max_diameter = np.max(self.max_diameter,2*part.radius)
+            self.Awet_body += part.Awet
+
+        self.fineness_ratio = self.length/self.max_diameter
+
+        
+        
 
 
     

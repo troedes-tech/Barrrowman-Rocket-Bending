@@ -2,7 +2,9 @@ import numpy as np
 from components import *
 
 class aerodynamics:
-    def __init__(self,Aref):
+    def __init__(self,Aref, mach, gamma = 1.4):
+        self.mach = mach
+        self.gamma = gamma
         self.Aref = Aref
 
     def C_na(self, body, alpha):
@@ -44,5 +46,24 @@ class aerodynamics:
         else:
             X_n = 0
         return X_n
+
+    def C_na_fins(self, fin, tube, alpha):
+        # function to find normal force coefficient of fins
+        beta = np.sqrt(np.abs(1-self.mach**2))
+        if self.mach <1:
+            c_na_single = (2*np.pi*(fin.span**2)/self.Aref)/(1+np.sqrt(1+(beta*(fin.span**2)/(fin.area*np.cos(fin.Lc)))**2))
+        else:
+            k1 = 2/beta
+            k2 = ((self.gamma+1)*self.mach**4-4*beta**2)/(4*beta**4)
+            k3 = ((self.gamma+1)*self.mach**8+(2*self.gamma**2-7*self.gamma-5)*self.mach**6+10*(self.gamma+1)*self.mach**4+8)/(6*beta**7)
+            c_na_single = (fin.area/self.Aref)*(k1+k2*alpha+k3*alpha**2)
+        #for 4 fins
+        c_na = 2*c_na_single
+        # fin body interference
+        kt = 1 + tube.radius/(tube.span+tube.radius)
+        c_na = kt*c_na
+        return c_na
+
+    
 
     

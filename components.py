@@ -113,24 +113,15 @@ class fin:
         self.thickness = thickness
         self.ar = 2*self.area*self.span**2
         self.Lc = np.atan2(0.5*root_chord+sweep_length-0.5*tip_chord,span)
-        self.location = location #location of top of part from top of rocket #TODO do for all parts
+        self.location = location #location of top of part from top of rocket
         self.c_hat = np.sqrt((0.5*root_chord+sweep_length-0.5*tip_chord)**2+span**2)# mean aerodynamic chord length
-
-    def cp(self, mach): #TODO move to aerodynamics
-        # function to find centre of pressure of a fin
-        y = (self.span/3)*(self.root_chord+2*self.tip_chord)/(self.root_chord+self.tip_chord)
-        if mach < 2:
-            x = (self.sweep_length/3)*(self.root_chord+2*self.tip_chord)/(self.root_chord+self.tip_chord)+(self.root_chord**2+self.root_chord*self.tip_chord+3*self.tip_chord**2)/(6*(self.root_chord+self.tip_chord))
-        else:
-            beta = np.sqrt(np.abs(1-mach**2))
-            x = (self.ar*beta-0.67)/(2*self.ar*beta-1)*self.c_hat
-        return [x,y]
 
 
 class rocket:
-    def __init__(self, fins, parts):
+    def __init__(self, fins, parts, roughness):
         self.fins = fins
         self.parts = parts
+        self.roughness = roughness
         
         self.length = 0
         self.max_diameter = 0

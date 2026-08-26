@@ -247,6 +247,18 @@ class aerodynamics:
             cd = 0.25/self.mach
         return cd
 
+    def cd_fins(self,fins):
+        # for fins with rounded leading edge and taperd trailing edge (no tapered leading edge oddly)
+        le_angle = np.atan(fins.sweep_length/fins.span) # leading edge angle
+
+        if self.mach < 0.9:
+            cd_le = ((1-self.mach**2)**-0.417) -1
+        elif self.mach < 1:
+            cd_le = 1-1.785*(self.mach-0.9)
+        else:
+            cd_le = 1.214-0.502/(self.mach**2) + 0.1085/(self.mach**4)
+        return cd_le*np.cos(le_angle)**2
+
     def cd_total(self, rocket):
         # finds the total axial drag coefficient
         cd_tot = 0
@@ -261,6 +273,9 @@ class aerodynamics:
         for part in rocket.parts:
             if part.__class__.__name__ == 'transition_ogive':
                 cd_tot += self.cd_ogive(part)*((part.area_l-part.area_0)/self.Aref)
+
+        # fins
+        cd_tot += self.cd_fins(rocket.fins)*((4*rocket.fins.thickness*rocket.fins.span)/self.Aref)
 
         # boattail/base
         if rocket.parts[-1].__class__.__name__ == 'boattail':

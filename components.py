@@ -8,6 +8,11 @@ class nosecone_vk:
         self.area_0 = 0
         self.cl = None
 
+        # data mach v cd for von karman nose cones of fineness 3
+        # source: OR repository
+        self.cd_data_f3 = {{ 0.9, 0.95, 1.0, 1.05, 1.1, 1.2, 1.4, 1.6, 2.0, 3.0 },
+                           { 0, 0.010, 0.027, 0.055, 0.070, 0.081, 0.095, 0.097, 0.091, 0.083 }}
+
         # Volume and Surface Area
         x = np.linspace(0,length)
         r = self.radius*np.sqrt(np.acos(1-2*x/self.length)-0.5*np.sin(2*np.acos(1-2*x/self.length))/np.pi)
@@ -39,18 +44,23 @@ class nosecone_ogive:
         self.area_0 = 0
         self.cl = None
         self.shape_factor = shape_factor
+        self.half_angle = np.atan(radius/length)
 
         # Volume and Surface Area
         x = np.linspace(0,length)
-        self.rho = ((radius**2)+(length**2))/(2*radius*shape_factor)
-        self.alpha = np.atan(radius/length)-np.arccos(np.sqrt(radius**2+length**2)/2*self.rho)
-        r = np.sqrt(self.rho**2-(x-self.rho*np.cos(self.alpha))**2)+self.rho*np.sin(self.alpha)
+        k = shape_factor
+        self.rho_squared = ((radius**2)+(length**2))*(((k*radius)**2)+(((2-k)*length)**2))/(4*(radius*k)**2)
+        r = np.sqrt(self.rho_squared-(length/k - x)**2) - np.sqrt(self.rho_squared-(length/k)**2)
         self.volume = np.pi*np.trapezoid(r**2,x)
         self.Awet = 2*np.pi*np.trapezoid(r,x)   # Surface Area
 
+        #shoulder angle
+        self.shoulder_angle = -np.atan(2*(k-1)*length*radius/np.abs((k-2)*(length**2)-k*radius**2))
+
     def r(self,x):
         # function to find radius at a given x location
-        r = np.sqrt(self.rho**2-(x-self.rho*np.cos(self.alpha))**2)+self.rho*np.sin(self.alpha)
+        k = self.shape_factor
+        r = np.sqrt(self.rho_squared-(self.length/k - x)**2) - np.sqrt(self.rho_squared-(self.length/k)**2)
         return r
 
 class transition_ogive:
@@ -62,6 +72,7 @@ class transition_ogive:
         self.length = length
         self.area_l = np.pi*radius_l**2
         self.area_0 = np.pi*radius_0**2
+        self.shoulder_angle = 0
         self.cl = None
 
         self.cutoff = -length-np.sqrt(-((length**2+radius_0*(radius_0-radius_l))*(radius_0-radius_l)*radius_l))/(radius_0-radius_l)
@@ -69,13 +80,13 @@ class transition_ogive:
         # Volume
         x = np.linspace(self.cutoff,self.cutoff+length)
         self.rho = ((radius_l**2)+(length**2))/(2*radius_l)
-        r = np.sqrt(self.rho**2-((x+self.cutoff)-self.length)**2)+self.radius_l-self.rho
+        r = np.sqrt(self.rho**2-((x+self.cutoff)-self.length)**2)- np.sqrt(self.rho**2-self.length**2)
         self.volume = np.pi*np.trapezoid(r**2,x)
         self.Awet = 2*np.pi*np.trapezoid(r,x)   # Surface Area
 
     def r(self,x):
         # function to find radius at a given x location
-        r = np.sqrt(self.rho**2-((x+self.cutoff)-self.length)**2)+self.radius_l-self.rho
+        r = np.sqrt(self.rho**2-((x+self.cutoff)-self.length)**2)- np.sqrt(self.rho**2-self.length**2)
         return r
 
 

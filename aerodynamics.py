@@ -138,4 +138,86 @@ class aerodynamics:
                              +(1+2*rocket.fins.thickness/rocket.fins.c_hat)*8*rocket.fins.area)
         return cd_skin
 
+    def cd_blunt(self, mach):
+        # drag coefficient of a blunt cylinder
+        if mach < 1:
+            cd = 0.85*(1+(mach**2)/4+(mach**4)/40)
+        else:
+            cd = 0.85*(1.84-0.76/(mach**2)+0.166/(mach**4)+0.035/(mach**6))
+        return cd
+
+    def cd_vk(self, mach, nosecone):
+        # function for finding the axial drag coefficient of a von karman nosecone
+        c0 = self.cd_blunt(mach)
+        fn = 0.5*nosecone.length/nosecone.radius # fineness
+        exp = np.log(fn+1)/np.log(4)
+        data_min = nosecone.cd_data_f3[0][0]
+        data_max = nosecone.cd_data_f3[0][-1]
+
+        # transonic/supersonic region
+        if mach > data_min and mach < data_max:
+            c3 = np.interp(mach,nosecone.cd_data_f3[0], nosecone.cd_data_f3[1])
+            cd = c0*np.pow(c3/c0,exp)
+
+        # subsonic
+        elif mach < data_min:
+            cd = 0
+
+        # supersonic extrapolation
+        else:
+            # issue with this but assume constant for Mach >3
+            cd = c0*np.pow(nosecone.cd_data_f3[1][-1]/c0,exp)
+
+        return cd
+
+    def cd_ogive(self, mach, nosecone):
+        # function for finding the axial drag coefficient of an ogive nosecone
+        
+        if mach > 1:
+            cd = (0.72*(nosecone.shape_factor-0.5)**2+0.82)*self.cd_cone(mach, nosecone)
+        else:
+            cd_m0 = 0.8*(np.sin(nosecone.shoulder_angle)**2)
+            cd_m1 = (0.72*(nosecone.shape_factor-0.5)**2+0.82)*np.sin(nosecone.half_angle)
+            cd_m1_slope = 4*(1-0.5*np.sin(nosecone.half_angle))/(self.gamma+1)
+
+            b = cd_m1_slope/(cd_m1 - cd_m0)
+            a = cd_m1-cd_m0
+
+            cd = a*np.pow(mach,b)+cd_m0
+
+        return cd
+
+    def cd_cone(self, mach, nosecone):
+        # needs to be updated for subsonic case if being used for conical nosecone
+        # function is currently only used in ogive calculations
+        if mach >= 1.3:
+            cd = 2.1*(np.sin(nosecone.half_angle)**2)+0.5*np.sin(nosecone.half_angle)/np.sqrt((mach**2)-1)
+
+        else: # 1 < mach <1.3
+            cd1 = np.sin(nosecone.half_angle)  # mach 1
+            cd2 = 2.1*(np.sin(nosecone.half_angle)**2)+0.5*np.sin(nosecone.half_angle)/np.sqrt((1.3**2)-1)  # mach 1.3
+            cd1_slope = 4*(1-0.5*np.sin(nosecone.half_angle))/(self.gamma+1)
+
+            # quadratic interpolation
+            a = (-10/9)*(10*cd1-10*cd2+3*cd1_slope)
+            b = (200/9)*(cd1-cd2)+(23*cd1_slope/3)
+            c = (1/9)*(-91*cd1+100*cd2-39*cd1_slope)
+
+            cd = a*mach**2 + b*mach +c
+
+        return cd
+
     
+
+
+
+
+
+
+
+        
+         
+
+
+
+        

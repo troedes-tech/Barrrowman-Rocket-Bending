@@ -116,6 +116,7 @@ class aerodynamics:
 
     def skin_friction(self, rocket, roughness, velocity, kv, mach):
         # kv is kinematic viscosity
+        #TODO get velocity from mach number
         Re = velocity*rocket.length/kv
         Re_crit = 51*(roughness/rocket.length)**-1.039
         if Re < 10**-4:
@@ -207,7 +208,56 @@ class aerodynamics:
 
         return cd
 
-    
+    def cd_boattail(self, mach, boattail):
+        # function to find the drag coeffcieint of a boattail
+        lh_ratio = 0.5*boattail.length/(boattail.radius_0-boattail.radius_l)
+
+        if lh_ratio < 1:
+            coeff = 1
+        elif lh_ratio < 3:
+            coeff = (3-lh_ratio)/2
+        else:
+            coeff = 0
+
+        # TODO double check these areas are correct ones
+        cd = coeff*(boattail.area_0/boattail.area_l)*self.cd_base(mach)
+
+        return cd
+
+    def cd_base(self, mach):
+        # dont add this on top of boattail drag I believe #TODO double check
+        if mach < 1:
+            cd = 0.12+10.13*mach**2
+        else:
+            cd = 0.25/mach
+        return cd
+
+    def cd_total(self, mach, rocket, roughness, velocity, kv):
+        #TODO put these inputs under aerodynamics class
+        cd_tot = 0
+        # nosecone
+        nosecone_name = rocket.parts[0].__class__.__name__ 
+        if nosecone_name == 'nosecone_vk':
+            cd_tot += self.cd_vk(mach, rocket.parts[0])*(rocket.parts[0].area_l/self.Aref)
+        elif nosecone_name == 'nosecone_ogive':
+            cd_tot += self.cd_ogive(mach, rocket.parts[0])*(rocket.parts[0].area_l/self.Aref)
+
+        # transition
+        for part in rocket.parts:
+            if part.__class__.__name__ == 'transition_ogive':
+                cd_tot += self.cd_ogive(mach, part)*((part.area_l-part.area_0)/self.Aref)
+
+        # boattail/base
+        if rocket.parts[-1].__class__.__name__ == 'boattail':
+            cd_tot += self.cd_boattail(mach,rocket.parts[-1])*(rocket.parts[-1].area_l/self.Aref)
+        else:
+            cd_tot += self.cd_base(mach)*(rocket.parts[-1].area_l/self.Aref)
+
+        cd_tot += self.skin_friction( rocket, roughness, velocity, kv, mach)
+
+
+
+
 
 
 

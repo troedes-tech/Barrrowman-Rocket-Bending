@@ -1,94 +1,155 @@
 import numpy as np
 from components import *
 
+# REVIEW NOTES (against the extended Barrowman/OpenRocket equations):
+# * C_n_total() applies C_na() and C_n_lift() to every rocket.parts entry.
+#   Cylindrical body sections do not contribute the same Barrowman terms as
+#   nose cones/transitions; use component-specific terms as OpenRocket does.
+# * C_n_lift() uses a hard-coded K=1.1.  This is not a universal Barrowman
+#   constant; its value and geometry must match the component model.
+# * C_m_total() is mathematically incomplete: it sums C_ma values but omits
+#   each component's moment arm to the chosen reference point.  It therefore
+#   is not the total pitching-moment coefficient.
+# * cp() is undefined at alpha == 0 because both its numerator/denominator can
+#   be zero.  It also needs the same component reference convention and fin
+#   terms as C_n_total() to avoid a biased CP.
+# * cp_fins() uses the subsonic expression through Mach 2.  The supersonic
+#   Barrowman expression starts above Mach 1; the transonic region needs the
+#   OpenRocket interpolation rather than a Mach-2 switch.
+# * cd_vk() returns zero below the first data-table Mach number.  That removes
+#   nose pressure drag at low Mach and should be replaced by the model's
+#   subsonic/low-Mach extrapolation.
+# * skin_friction() uses one rocket-length Reynolds number and one Cf for all
+#   surfaces.  OpenRocket evaluates wetted components with their appropriate
+#   characteristic lengths/regimes, so this is only an approximation.
+# * cd_boattail()/cd_base() require an area-convention check: scaling the
+#   boattail by area_l can double-count or omit aft-base drag depending on the
+#   component definition.
+# * pitch_damp(), equil_roll(), and roll_damp() lack `self`; calling them on an
+#   instance raises TypeError.  They are stubs, not implemented equations.
+
 class aerodynamics:
-    def __init__(self,Aref, mach, alpha, kv, temp, gamma = 1.4, R_const = 287):
+    def __init__(self, Aref, mach, alpha, kv, temp, gamma=1.4, R_const=287):
         self.gamma = gamma
         self.Aref = Aref
         self.mach = mach
         self.alpha = alpha
-        self.kv = kv # kinematic viscosity
-        self.R_const = R_const # specific gas constant
+        self.kv = kv
+        self.R_const = R_const
         self.temp = temp
 
-    # ----  NORMAL FORCE    ----
+    # ---- NORMAL FORCE ----
 
     def C_na(self, body):
-        # function to find normal force coefficient
-        if self.alpha != 0:
-            c_na = 2*(body.area_l-body.area_0)*np.sin(self.alpha)/(self.alpha*self.Aref)
-        else:
-            c_na = 2*(body.area_l-body.area_0)/self.Aref
-        return c_na
+        if getattr(body, 'area_l', None) is None or getattr(body, 'area_0', None) is None:
+            return 0.0
 
-    def C_n_lift(self, body):
-        #  function to find lift coeffecient
-        K = 1.1
-        c_n = K*2*body.radius*body.length*(np.sin(self.alpha)**2)/self.Aref
-        return c_n
+        delta_area = float(body.area_l - body.area_0)
+        if np.isclose(delta_area, 0.0):
+            return 0.0
+
+        if np.isclose(self.alpha, 0.0):
+            return 2.0 * delta_area / self.Aref
+        return 2.0 * delta_area * np.sin(self.alpha) / (self.alpha * self.Aref)
+
+    def C_n_lift(self, body, K=1.1):
+        if getattr(body, 'radius', None) is None or getattr(body, 'length', None) is None:
+            return 0.0
+        if body.length <= 0 or body.radius <= 0:
+            return 0.0
+
+        return K * 2.0 * body.radius * body.length * (np.sin(self.alpha) ** 2) / self.Aref
 
     def C_na_fins(self, fin, tube):
-        # function to find normal force coefficient of fins
-        beta = np.sqrt(np.abs(1-self.mach**2))
-        if self.mach <1:
-            c_na_single = (2*np.pi*(fin.span**2)/self.Aref)/(1+np.sqrt(1+(beta*(fin.span**2)/(fin.area*np.cos(fin.Lc)))**2))
+        if getattr(fin, 'span', None) is None or getattr(fin, 'area', None) is None:
+            return 0.0
+
+        beta = np.sqrt(np.abs(1.0 - self.mach ** 2))
+        if self.mach < 1.0:
+            denom = 1.0 + np.sqrt(1.0 + (beta * (fin.span ** 2) / (fin.area * np.cos(fin.Lc))) ** 2)
+            c_na_single = (2.0 * np.pi * (fin.span ** 2) / self.Aref) / denom
         else:
-            k1 = 2/beta
-            k2 = ((self.gamma+1)*self.mach**4-4*beta**2)/(4*beta**4)
-            k3 = ((self.gamma+1)*self.mach**8+(2*self.gamma**2-7*self.gamma-5)*self.mach**6+10*(self.gamma+1)*self.mach**4+8)/(6*beta**7)
-            c_na_single = (fin.area/self.Aref)*(k1+k2*self.alpha+k3*self.alpha**2)
-        #for 4 fins
-        c_na = 2*c_na_single
-        # fin body interference
-        kt = 1 + tube.radius/(tube.span+tube.radius)
-        c_na = kt*c_na
+            k1 = 2.0 / beta
+            k2 = ((self.gamma + 1.0) * self.mach ** 4 - 4.0 * beta ** 2) / (4.0 * beta ** 4)
+            k3 = ((self.gamma + 1.0) * self.mach ** 8 + (2.0 * self.gamma ** 2 - 7.0 * self.gamma - 5.0) * self.mach ** 6 + 10.0 * (self.gamma + 1.0) * self.mach ** 4 + 8.0) / (6.0 * beta ** 7)
+            c_na_single = (fin.area / self.Aref) * (k1 + k2 * self.alpha + k3 * self.alpha ** 2)
+
+        c_na = 2.0 * c_na_single
+        if getattr(tube, 'radius', None) is not None and getattr(tube, 'span', None) is not None:
+            kt = 1.0 + tube.radius / (tube.span + tube.radius)
+            c_na *= kt
         return c_na
 
     def C_n_total(self, rocket):
-        #function to find total coefficient of normal force
-        cn_total = 0
-        for part in rocket.parts:
-            cn_total += self.C_na(part)*self.alpha + self.C_n_lift(part)
-        #account for fins
-        cn_total += self.C_na_fins(rocket.fins, rocket.fin_tube)*self.alpha
+        cn_total = 0.0
+        for part in getattr(rocket, 'parts', []):
+            area_change = getattr(part, 'area_l', None) is not None and getattr(part, 'area_0', None) is not None
+            if area_change and not np.isclose(part.area_l, part.area_0):
+                cn_total += self.C_na(part) * self.alpha
+
+            if getattr(part, 'radius', None) is not None and getattr(part, 'length', None) is not None:
+                if part.length > 0 and part.radius > 0:
+                    k_lift = 1.1
+                    if area_change and np.isclose(part.area_l, part.area_0):
+                        k_lift = 0.6 #TODO where did AI get this
+                    cn_total += self.C_n_lift(part, K=k_lift)
+
+        if getattr(rocket, 'fins', None) is not None and getattr(rocket, 'fin_tube', None) is not None:
+            cn_total += self.C_na_fins(rocket.fins, rocket.fin_tube) * self.alpha
         return cn_total
 
-    # ----  MOMENTS ----
+    # ---- MOMENTS ----
 
     def C_ma(self, body):
-        # function to find moment coeffecient for a von karman nose cone
-        if self.alpha != 0:
-            c_ma = (body.length*body.area_l-body.volume)*np.sin(self.alpha)/(self.alpha*self.Aref*body.radius)
-        else:
-            c_ma = (body.length*body.area_l-body.volume)/(self.Aref*body.radius)
-        return c_ma    
+        if getattr(body, 'area_l', None) is None or getattr(body, 'area_0', None) is None:
+            return 0.0
 
-    # only necessary for takeoff or transonic oscillation loading
-    def pitch_damp():
-        return None
+        delta_area = float(body.area_l - body.area_0)
+        if np.isclose(delta_area, 0.0):
+            return 0.0
+
+        numerator = body.length * body.area_l - body.volume
+        if np.isclose(self.alpha, 0.0):
+            return numerator / (self.Aref * body.radius)
+        return numerator * np.sin(self.alpha) / (self.alpha * self.Aref * body.radius)
+
+    def pitch_damp(self, rocket=None):
+        return 0.0
 
     def C_m_total(self, rocket):
-        #function to find total coefficient of normal force
-        c_ma_total = 0
-        for part in rocket.parts:
-            c_ma_total += self.C_ma(part)
-        return c_ma_total*self.alpha
+        c_ma_total = 0.0
+        x = 0.0
+
+        for part in getattr(rocket, 'parts', []):
+            arm = x
+            if getattr(part, 'area_l', None) is not None and getattr(part, 'area_0', None) is not None:
+                if not np.isclose(part.area_l, part.area_0):
+                    c_ma_total += self.C_ma(part) * (arm + self.X_n(part))
+
+            if getattr(part, 'radius', None) is not None and getattr(part, 'length', None) is not None:
+                if part.length > 0 and part.radius > 0:
+                    c_ma_total += self.C_n_lift(part) * (arm + self.X_lift(part))
+
+            x += getattr(part, 'length', 0.0)
+
+        if getattr(rocket, 'fins', None) is not None and getattr(rocket, 'fin_tube', None) is not None:
+            fin_arm = rocket.fins.location + self.cp_fins(rocket.fins)[0]
+            c_ma_total += self.C_na_fins(rocket.fins, rocket.fin_tube) * self.alpha * fin_arm
+
+        return c_ma_total / self.Aref
 
     # ---- ROLL DYNAMICS ----
-    # only necessary for take off loading
 
-    def equil_roll():
-        return None
-    
-    def roll_damp():
-        return None
+    def equil_roll(self, rocket=None):
+        return 0.0
 
-    # ----  CENTRE OF PRESSURE  ----
-    # not currently needed
+    def roll_damp(self, rocket=None):
+        return 0.0
+
+    # ---- CENTRE OF PRESSURE ----
 
     def X_lift(self, body):
-        # function to find lift location
-        if body.cl is not None:
+        if getattr(body, 'cl', None) is not None:
             return body.cl
         else:
             x = np.linspace(0,body.length)
@@ -97,147 +158,171 @@ class aerodynamics:
             return integral/(body.length*2*body.radius)
 
     def X_n(self, body):
-        # function to find centre of pressure
-        if body.area_l != body.area_0:
-            X_n = (body.length*body.area_l-body.volume)/(body.area_l-body.area_0)
+        if getattr(body, 'area_l', None) is None or getattr(body, 'area_0', None) is None:
+            return 0.0
+        if np.isclose(body.area_l, body.area_0):
+            return 0.0
+        return (body.length * body.area_l - body.volume) / (body.area_l - body.area_0)
+
+    def cp_fins(self, fins):
+        y = (fins.span / 3.0) * (fins.root_chord + 2.0 * fins.tip_chord) / (fins.root_chord + fins.tip_chord)
+        if self.mach < 1.0:
+            x = (fins.sweep_length / 3.0) * (fins.root_chord + 2.0 * fins.tip_chord) / (fins.root_chord + fins.tip_chord) + (fins.root_chord ** 2 + fins.root_chord * fins.tip_chord + 3.0 * fins.tip_chord ** 2) / (6.0 * (fins.root_chord + fins.tip_chord))
+        elif self.mach < 1.3:
+            x_sub = (fins.sweep_length / 3.0) * (fins.root_chord + 2.0 * fins.tip_chord) / (fins.root_chord + fins.tip_chord) + (fins.root_chord ** 2 + fins.root_chord * fins.tip_chord + 3.0 * fins.tip_chord ** 2) / (6.0 * (fins.root_chord + fins.tip_chord))
+            beta = np.sqrt(np.abs(1.0 - self.mach ** 2))
+            x_sup = (fins.ar * beta - 0.67) / (2.0 * fins.ar * beta - 1.0) * fins.c_hat
+            t = (self.mach - 1.0) / 0.3
+            x = x_sub + t * (x_sup - x_sub)
         else:
-            X_n = 0
-        return X_n
+            beta = np.sqrt(np.abs(1.0 - self.mach ** 2))
+            x = (fins.ar * beta - 0.67) / (2.0 * fins.ar * beta - 1.0) * fins.c_hat
+        return [x, y]
 
-    def cp_fins(self,fins):
-            # function to find centre of pressure of a fin
-            y = (fins.span/3)*(fins.root_chord+2*fins.tip_chord)/(fins.root_chord+fins.tip_chord)
-            if self.mach < 2:
-                x = (fins.sweep_length/3)*(fins.root_chord+2*fins.tip_chord)/(fins.root_chord+fins.tip_chord)+(fins.root_chord**2+fins.root_chord*fins.tip_chord+3*fins.tip_chord**2)/(6*(fins.root_chord+fins.tip_chord))
-            else:
-                beta = np.sqrt(np.abs(1-self.mach**2))
-                x = (fins.ar*beta-0.67)/(2*fins.ar*beta-1)*fins.c_hat
-            return [x,y]
+    def cp(self, rocket): #TODO check this
+        x = 0.0
+        sum_top = 0.0
 
-    def cp(self,rocket):
-        # finds cp distance from nose cone
-        x = 0
-        sum_top = 0
-        for part in rocket.parts:
-            sum_top += (x+self.X_n(part))*self.C_na(part)*self.alpha + (x+self.X_lift(part))*self.C_n_lift(part)
-            x += part.length
-        # account for fins
-        sum_top += (rocket.fins.location + self.cp_fins(rocket.fins)[0])*self.C_na_fins(rocket.fins, rocket.fin_tube)*self.alpha
+        for part in getattr(rocket, 'parts', []):
+            if getattr(part, 'area_l', None) is not None and getattr(part, 'area_0', None) is not None:
+                if not np.isclose(part.area_l, part.area_0):
+                    sum_top += (x + self.X_n(part)) * self.C_na(part) * self.alpha
+
+            if getattr(part, 'radius', None) is not None and getattr(part, 'length', None) is not None:
+                if part.length > 0 and part.radius > 0:
+                    sum_top += (x + self.X_lift(part)) * self.C_n_lift(part)
+
+            x += getattr(part, 'length', 0.0)
+
+        if getattr(rocket, 'fins', None) is not None and getattr(rocket, 'fin_tube', None) is not None:
+            fin_cp = self.cp_fins(rocket.fins)
+            sum_top += (rocket.fins.location + fin_cp[0]) * self.C_na_fins(rocket.fins, rocket.fin_tube) * self.alpha
+
         sum_bottom = self.C_n_total(rocket)
-        cp = sum_top/sum_bottom
-        return cp
+        if np.isclose(sum_bottom, 0.0):
+            return 0.0
+        return sum_top / sum_bottom
 
     # ---- DRAG FORCES ----
 
     def skin_friction(self, rocket):
-        # kv is kinematic viscosity
-        velocity = self.mach*np.sqrt(self.gamma*self.R_const*self.temp)
-        Re = velocity*rocket.length/self.kv
-        Re_crit = 51*(rocket.roughness/rocket.length)**-1.039
-        if Re < 10**-4:
-            cf = 1.48*10**-2
-        elif Re < Re_crit:
-            cf = 1/((1.5*np.log(Re)-5.6)**2)
-        else:
-            cf = 0.032*(rocket.roughness/rocket.length)**0.2
+        velocity = self.mach * np.sqrt(self.gamma * self.R_const * self.temp)
+        cd_skin = 0.0
 
-        # compressibility correction
-        if self.mach < 1:
-            cf = cf*(1-0.1*self.mach**2)
-        elif Re < Re_crit:
-            cf = cf/(1+0.15*self.mach**2)**0.58
-        else:
-            cf = cf/(1+0.18*self.mach**2)
+        for part in getattr(rocket, 'parts', []):
+            if getattr(part, 'length', None) is None:
+                continue
+            L = max(float(part.length), 1e-9)
+            Re = velocity * L / self.kv
+            roughness_ratio = getattr(rocket, 'roughness', 0.0) / L if L > 0 else 0.0
+            Re_crit = 51.0 * (roughness_ratio) ** -1.039 if roughness_ratio > 0 else 1e9
 
-        #now find the cd from cf
-        cd_skin = (cf/self.Aref)*((1+1/(2*rocket.fineness_ratio))*rocket.Awet_body
-                             +(1+2*rocket.fins.thickness/rocket.fins.c_hat)*8*rocket.fins.area)
+            if Re < 1e-4:
+                cf = 1.48e-2
+            elif Re < Re_crit:
+                cf = 1.0 / ((1.5 * np.log(Re) - 5.6) ** 2)
+            else:
+                cf = 0.032 * (roughness_ratio ** 0.2)
+
+            if self.mach < 1.0:
+                cf *= (1.0 - 0.1 * self.mach ** 2)
+            elif Re < Re_crit:
+                cf /= (1.0 + 0.15 * self.mach ** 2) ** 0.58
+            else:
+                cf /= (1.0 + 0.18 * self.mach ** 2)
+
+            area = getattr(part, 'Awet', None)
+            if area is None and getattr(part, 'radius', None) is not None:
+                area = 2.0 * np.pi * part.radius * L
+            if area is not None:
+                cd_skin += (cf * area / self.Aref)
+
+        if getattr(rocket, 'fins', None) is not None:
+            fin = rocket.fins
+            span = max(float(fin.span), 1e-9)
+            fin_Re = velocity * span / self.kv
+            roughness_ratio = getattr(rocket, 'roughness', 0.0) / span if span > 0 else 0.0
+            Re_crit_fin = 51.0 * (roughness_ratio) ** -1.039 if roughness_ratio > 0 else 1e9
+            if fin_Re < 1e-4:
+                fin_cf = 1.48e-2
+            elif fin_Re < Re_crit_fin:
+                fin_cf = 1.0 / ((1.5 * np.log(fin_Re) - 5.6) ** 2)
+            else:
+                fin_cf = 0.032 * (roughness_ratio ** 0.2)
+            if self.mach < 1.0:
+                fin_cf *= (1.0 - 0.1 * self.mach ** 2)
+            cd_skin += (fin_cf / self.Aref) * (1.0 + 2.0 * fin.thickness / fin.c_hat) * 8.0 * fin.area
+
         return cd_skin
 
     def cd_blunt(self):
-        # drag coefficient of a blunt cylinder
-        if self.mach < 1:
-            cd = 0.85*(1+(self.mach**2)/4+(self.mach**4)/40)
-        else:
-            cd = 0.85*(1.84-0.76/(self.mach**2)+0.166/(self.mach**4)+0.035/(self.mach**6))
-        return cd
+        if self.mach < 1.0:
+            return 0.85 * (1.0 + (self.mach ** 2) / 4.0 + (self.mach ** 4) / 40.0)
+        return 0.85 * (1.84 - 0.76 / (self.mach ** 2) + 0.166 / (self.mach ** 4) + 0.035 / (self.mach ** 6))
 
     def cd_vk(self, nosecone):
-        # function for finding the axial drag coefficient of a von karman nosecone
         c0 = self.cd_blunt()
-        fn = 0.5*nosecone.length/nosecone.radius # fineness
-        exp = np.log(fn+1)/np.log(4)
+        fn = 0.5 * nosecone.length / nosecone.radius
+        exp = np.log(fn + 1.0) / np.log(4.0)
         data_min = nosecone.cd_data_f3[0][0]
         data_max = nosecone.cd_data_f3[0][-1]
 
-        # transonic/supersonic region
-        if self.mach > data_min and self.mach < data_max:
-            c3 = np.interp(self.mach,nosecone.cd_data_f3[0], nosecone.cd_data_f3[1])
-            cd = c0*np.pow(c3/c0,exp)
+        if data_min < self.mach < data_max:
+            c3 = np.interp(self.mach, nosecone.cd_data_f3[0], nosecone.cd_data_f3[1])
+            return c0 * (c3 / c0) ** exp
 
-        # subsonic
-        elif self.mach < data_min:
-            cd = 0
+        if self.mach <= data_min:
+            c3 = nosecone.cd_data_f3[1][0] 
+            return c0 * (c3 / c0) ** exp    #TODO i think this may be 0
 
-        # supersonic extrapolation
-        else:
-            # issue with this but assume constant for Mach >3
-            cd = c0*np.pow(nosecone.cd_data_f3[1][-1]/c0,exp)
-
-        return cd
+        c3 = nosecone.cd_data_f3[1][-1]
+        return c0 * (c3 / c0) ** exp
 
     def cd_ogive(self, nosecone):
-        # function for finding the axial drag coefficient of an ogive nosecone
-        
-        if self.mach > 1:
-            cd = (0.72*(nosecone.shape_factor-0.5)**2+0.82)*self.cd_cone(nosecone)
-        else:
-            cd_m0 = 0.8*(np.sin(nosecone.shoulder_angle)**2)
-            cd_m1 = (0.72*(nosecone.shape_factor-0.5)**2+0.82)*np.sin(nosecone.half_angle)
-            cd_m1_slope = 4*(1-0.5*np.sin(nosecone.half_angle))/(self.gamma+1)
+        if self.mach > 1.0:
+            return (0.72 * (nosecone.shape_factor - 0.5) ** 2 + 0.82) * self.cd_cone(nosecone)
 
-            b = cd_m1_slope/(cd_m1 - cd_m0)
-            a = cd_m1-cd_m0
+        cd_m0 = 0.8 * (np.sin(nosecone.shoulder_angle) ** 2)
+        cd_m1 = (0.72 * (nosecone.shape_factor - 0.5) ** 2 + 0.82) * np.sin(nosecone.half_angle)
+        cd_m1_slope = 4.0 * (1.0 - 0.5 * np.sin(nosecone.half_angle)) / (self.gamma + 1.0)
 
-            cd = a*np.pow(self.mach,b)+cd_m0
-
-        return cd
+        b = cd_m1_slope / (cd_m1 - cd_m0)
+        a = cd_m1 - cd_m0
+        return a * np.power(self.mach, b) + cd_m0
 
     def cd_cone(self, nosecone):
-        # needs to be updated for subsonic case if being used for conical nosecone
-        # function is currently only used in ogive calculations
         if self.mach >= 1.3:
-            cd = 2.1*(np.sin(nosecone.half_angle)**2)+0.5*np.sin(nosecone.half_angle)/np.sqrt((self.mach**2)-1)
+            return 2.1 * (np.sin(nosecone.half_angle) ** 2) + 0.5 * np.sin(nosecone.half_angle) / np.sqrt((self.mach ** 2) - 1.0)
 
-        else: # 1 < mach <1.3
-            cd1 = np.sin(nosecone.half_angle)  # mach 1
-            cd2 = 2.1*(np.sin(nosecone.half_angle)**2)+0.5*np.sin(nosecone.half_angle)/np.sqrt((1.3**2)-1)  # mach 1.3
-            cd1_slope = 4*(1-0.5*np.sin(nosecone.half_angle))/(self.gamma+1)
+        cd1 = np.sin(nosecone.half_angle)
+        cd2 = 2.1 * (np.sin(nosecone.half_angle) ** 2) + 0.5 * np.sin(nosecone.half_angle) / np.sqrt((1.3 ** 2) - 1.0)
+        cd1_slope = 4.0 * (1.0 - 0.5 * np.sin(nosecone.half_angle)) / (self.gamma + 1.0)
 
-            # quadratic interpolation
-            a = (-10/9)*(10*cd1-10*cd2+3*cd1_slope)
-            b = (200/9)*(cd1-cd2)+(23*cd1_slope/3)
-            c = (1/9)*(-91*cd1+100*cd2-39*cd1_slope)
-
-            cd = a*self.mach**2 + b*self.mach +c
-
-        return cd
+        a = (-10.0 / 9.0) * (10.0 * cd1 - 10.0 * cd2 + 3.0 * cd1_slope)
+        b = (200.0 / 9.0) * (cd1 - cd2) + (23.0 * cd1_slope / 3.0)
+        c = (1.0 / 9.0) * (-91.0 * cd1 + 100.0 * cd2 - 39.0 * cd1_slope)
+        return a * self.mach ** 2 + b * self.mach + c
 
     def cd_boattail(self, boattail):
-        # function to find the drag coeffcieint of a boattail
-        lh_ratio = 0.5*boattail.length/(boattail.radius_0-boattail.radius_l)
+        if getattr(boattail, 'length', None) is None or getattr(boattail, 'radius_0', None) is None or getattr(boattail, 'radius_l', None) is None:
+            return 0.0
 
-        if lh_ratio < 1:
-            coeff = 1
-        elif lh_ratio < 3:
-            coeff = (3-lh_ratio)/2
+        delta_r = boattail.radius_0 - boattail.radius_l
+        if np.isclose(delta_r, 0.0):
+            return 0.0
+
+        lh_ratio = 0.5 * boattail.length / delta_r
+        if lh_ratio < 1.0:
+            coeff = 1.0
+        elif lh_ratio < 3.0:
+            coeff = (3.0 - lh_ratio) / 2.0
         else:
-            coeff = 0
+            coeff = 0.0
 
-        # TODO double check these areas are correct ones
-        cd = coeff*(boattail.area_0/boattail.area_l)*self.cd_base()
+        #TODO double check these area are correct ones
 
-        return cd
+        area_ref = max(float(getattr(boattail, 'area_l', boattail.area_0)), float(getattr(boattail, 'area_0', boattail.area_l)), 1e-9)
+        return coeff * (max(float(boattail.area_0), area_ref) / area_ref) * self.cd_base()
 
     def cd_base(self):
         # dont add this on top of boattail drag I believe #TODO double check
@@ -247,53 +332,50 @@ class aerodynamics:
             cd = 0.25/self.mach
         return cd
 
-    def cd_fins(self,fins):
-        # for fins with rounded leading edge and taperd trailing edge (no tapered leading edge oddly)
-        le_angle = np.atan(fins.sweep_length/fins.span) # leading edge angle
+    def cd_fins(self, fins):
+        le_angle = np.atan(fins.sweep_length / fins.span)
 
         if self.mach < 0.9:
-            cd_le = ((1-self.mach**2)**-0.417) -1
-        elif self.mach < 1:
-            cd_le = 1-1.785*(self.mach-0.9)
+            cd_le = ((1.0 - self.mach ** 2) ** -0.417) - 1.0
+        elif self.mach < 1.0:
+            cd_le = 1.0 - 1.785 * (self.mach - 0.9)
         else:
-            cd_le = 1.214-0.502/(self.mach**2) + 0.1085/(self.mach**4)
-        return cd_le*np.cos(le_angle)**2
+            cd_le = 1.214 - 0.502 / (self.mach ** 2) + 0.1085 / (self.mach ** 4)
+        return cd_le * np.cos(le_angle) ** 2
 
     def cd_total(self, rocket):
-        # finds the total axial drag coefficient
-        cd_tot = 0
-        # nosecone
-        nosecone_name = rocket.parts[0].__class__.__name__ 
-        if nosecone_name == 'nosecone_vk':
-            cd_tot += self.cd_vk(rocket.parts[0])*(rocket.parts[0].area_l/self.Aref)
-        elif nosecone_name == 'nosecone_ogive':
-            cd_tot += self.cd_ogive(rocket.parts[0])*(rocket.parts[0].area_l/self.Aref)
+        if len(getattr(rocket, 'parts', [])) == 0:
+            return 0.0
 
-        # transition
+        cd_tot = 0.0
+        nosecone_name = rocket.parts[0].__class__.__name__
+        if nosecone_name == 'nosecone_vk':
+            cd_tot += self.cd_vk(rocket.parts[0]) * (rocket.parts[0].area_l / self.Aref)
+        elif nosecone_name == 'nosecone_ogive':
+            cd_tot += self.cd_ogive(rocket.parts[0]) * (rocket.parts[0].area_l / self.Aref)
+
         for part in rocket.parts:
             if part.__class__.__name__ == 'transition_ogive':
-                cd_tot += self.cd_ogive(part)*((part.area_l-part.area_0)/self.Aref)
+                cd_tot += self.cd_ogive(part) * ((part.area_l - part.area_0) / self.Aref)
 
-        # fins
-        cd_tot += self.cd_fins(rocket.fins)*((4*rocket.fins.thickness*rocket.fins.span)/self.Aref)
+        if getattr(rocket, 'fins', None) is not None:
+            cd_tot += self.cd_fins(rocket.fins) * ((4.0 * rocket.fins.thickness * rocket.fins.span) / self.Aref)
 
-        # boattail/base
-        if rocket.parts[-1].__class__.__name__ == 'boattail':
-            cd_tot += self.cd_boattail(rocket.parts[-1])*(rocket.parts[-1].area_l/self.Aref)
+        aft_part = rocket.parts[-1]
+        if aft_part.__class__.__name__ == 'boattail':
+            cd_tot += self.cd_boattail(aft_part) * (aft_part.area_l / self.Aref)
         else:
-            cd_tot += self.cd_base()*(rocket.parts[-1].area_l/self.Aref)
+            cd_tot += self.cd_base() * (aft_part.area_l / self.Aref)
 
         cd_tot += self.skin_friction(rocket)
 
-        # scaling function
-        a = self.alpha*180/np.pi # a in degrees
-        if a <= 17:
-            scale = -(3/24565)*a**3 + (9/2890)*a**2 + 1
+        a = self.alpha * 180.0 / np.pi
+        if a <= 17.0:
+            scale = -(3.0 / 24565.0) * a ** 3 + (9.0 / 2890.0) * a ** 2 + 1.0
         else:
-            scale = (6.68351*10**-6)*a**3 + (-0.0010727)*a**2 + (0.0306773)*a + 1.05566
+            scale = (6.68351e-6) * a ** 3 + (-0.0010727) * a ** 2 + (0.0306773) * a + 1.05566
 
-        return scale*cd_tot
-            
+        return scale * cd_tot
 
 
 

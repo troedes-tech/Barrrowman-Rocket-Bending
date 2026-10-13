@@ -10,8 +10,12 @@ class nosecone_vk:
 
         # data mach v cd for von karman nose cones of fineness 3
         # source: OR repository
-        self.cd_data_f3 = {{ 0.9, 0.95, 1.0, 1.05, 1.1, 1.2, 1.4, 1.6, 2.0, 3.0 },
-                           { 0, 0.010, 0.027, 0.055, 0.070, 0.081, 0.095, 0.097, 0.091, 0.083 }}
+        # The original double braces create nested sets and fail at runtime.
+        # Keep Mach and Cd data ordered for interpolation.
+        self.cd_data_f3 = np.array([
+            [0.9, 0.95, 1.0, 1.05, 1.1, 1.2, 1.4, 1.6, 2.0, 3.0],
+            [0, 0.010, 0.027, 0.055, 0.070, 0.081, 0.095, 0.097, 0.091, 0.083]
+        ])
 
         # Volume and Surface Area
         x = np.linspace(0,length)
@@ -111,7 +115,10 @@ class fin:
         self.sweep_length = sweep_length
         self.area = (root_chord+tip_chord)*span/2
         self.thickness = thickness
-        self.ar = 2*self.area*self.span**2
+        # For one trapezoidal fin, planform aspect ratio is span**2 / area.
+        # Use 2*area only if the aerodynamic model defines area as one-sided
+        # area while span is the full two-sided span.
+        self.ar = 2*self.span**2/self.area
         self.Lc = np.atan2(0.5*root_chord+sweep_length-0.5*tip_chord,span)
         self.location = location #location of top of part from top of rocket
         self.c_hat = np.sqrt((0.5*root_chord+sweep_length-0.5*tip_chord)**2+span**2)# mean aerodynamic chord length
@@ -133,6 +140,8 @@ class rocket:
             self.max_diameter = np.max(self.max_diameter,2*part.radius)
             self.Awet_body += part.Awet
 
+        # Mathematical precondition: parts must be non-empty and have a
+        # positive diameter; otherwise this ratio is undefined.
         self.fineness_ratio = self.length/self.max_diameter
 
         

@@ -3,7 +3,9 @@
 Example: python main.py --mach 0.6 --aoa 2 --reynolds 1000000
 """
 import argparse
+import csv
 import inspect
+import itertools
 import math
 
 import aerodynamics as aero_module
@@ -18,7 +20,18 @@ def parse_args():
     parser.add_argument("--reynolds", type=float, default=1_000_000.0)
     parser.add_argument("--density", type=float, default=1.225, help="Air density (kg/m^3)")
     parser.add_argument("--temperature", type=float, default=285.0, help="Air temperature (K)")
+    parser.add_argument("--csv", default="cd_sweep.csv", help="Output CSV path")
+    parser.add_argument("--mach-values", default="0.2,0.4,0.6,0.8,1.0",
+                        help="Comma-separated Mach values for the CSV sweep")
+    parser.add_argument("--aoa-values", default="0,2,4,6,8",
+                        help="Comma-separated angles of attack in degrees")
+    parser.add_argument("--reynolds-values", default="100000,500000,1000000,5000000",
+                        help="Comma-separated Reynolds numbers")
     return parser.parse_args()
+
+
+def parse_values(text):
+    return [float(value.strip()) for value in text.split(",") if value.strip()]
 
 
 def invoke(function, values):
@@ -122,6 +135,51 @@ def main():
         print(f"Estimated total rocket drag: {total_drag:.6g} N")
     else:
         print(f"\nTotal rocket drag ({drag_name}): {drag_value:.6g} N")
+
+    # Export a vector of Cd results, one row for each combination of inputs.
+    sweep_rows = []
+    cd_candidates = [
+        (name, function) for name, function in candidates
+        if "cd" in name.lower().replace("_", "")
+        or "coefficient" in name.lower()
+    ]
+    for mach, aoa_degrees, reynolds in itertools.product(
+            parse_values(options.mach_values), parse_values(options.aoa_values),
+            parse_values(options.reynolds_values)):
+        sweep_aero = aerodynamics(area, mach, 0.5, options.density, options.temperature)
+        sweep_values = dict(values)
+        sweep_values.update({
+            "mach": mach, "alpha": math.radians(aoa_degrees),
+            "aoa": math.radians(aoa_degrees),
+            "angleofattack": math.radians(aoa_degrees),
+            "re": reynolds, "reynolds": reynolds,
+            "reynoldsnumber": reynolds,
+        })
+        result_cd = None
+        for name, function in cd_candidates:
+            # Prefer instance methods so coefficients use this row's Mach number.
+            sweep_methods = inspect.getmembers(sweep_aero, callable)
+            method = next((method for method_name, method in sweep_methods
+                           if method_name == name), None)
+            candidates_for_row = ([ (name, method) ] if method is not None else [])
+            candidates_for_row.extend(
+                (candidate_name, candidate) for candidate_name, candidate in cd_candidates
+                if candidate_name == name and getattr(candidate, "__module__", None) == aero_module.__name__
+            )
+            for _, function in candidates_for_row:
+                ok, result = invoke(function, sweep_values)
+                if ok and isinstance(result, (int, float)) and math.isfinite(result):
+                    result_cd = float(result)
+                    break
+            if result_cd is not None:
+                break
+        sweep_rows.append((mach, aoa_degrees, reynolds, result_cd))
+
+    with open(options.csv, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(("Mach", "AoA_deg", "Reynolds", "Cd"))
+        writer.writerows(sweep_rows)
+    print(f"\nWrote {len(sweep_rows)} Cd sweep rows to {options.csv}")
 
 
 if __name__ == "__main__":

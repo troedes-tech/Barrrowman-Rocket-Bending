@@ -1,144 +1,69 @@
-"""Read a drag-coefficient CSV and interpolate Cd by Mach, AoA, and Reynolds."""
+"""Load a drag-coefficient CSV and interpolate Cd by Mach and AoA."""
+import argparse,csv; from pathlib import Path; import numpy as np; from scipy.interpolate import LinearNDInterpolator
+_n=lambda v:"".join(ch.lower() for ch in str(v) if ch.isalnum())
 
-import csv
-import math
-import re
-from pathlib import Path
+def _g(g):
+    """Convert a Mach/AoA lookup dictionary into NumPy arrays for interpolation."""
+    p=[]; v=[]
+    [p.append((float(m),float(a))) or v.append(float(cd)) for m,am in g.items() for a,cd in am.items()]
+    return (np.empty((0,2),float),np.empty((0,),float)) if not p else (np.asarray(p,float),np.asarray(v,float))
 
+def _m(path):
+    """Parse a CSV where the first column is Mach and the remaining columns are AoA values."""
+    rows=[]
+    with Path(path).open("r",newline="",encoding="utf-8-sig") as s:
+        for r in csv.reader(s):
+            if any(c.strip() for c in r): rows.append([c.strip() for c in r])
+    if not rows: return [],[],{}
+    h=rows[0]; aoa=[]
+    for c in h[1:]:
+        try: aoa.append(float(c))
+        except ValueError: pass
+    g={}
+    for r in rows[1:]:
+        if len(r)<len(aoa)+1: continue
+        try: m=float(r[0]); v=[float(x) for x in r[1:len(aoa)+1]]
+        except ValueError: continue
+        g[m]={a:cd for a,cd in zip(aoa,v)}
+    return sorted(g), sorted({a for v in g.values() for a in v}), g
 
-_COLUMN_ALIASES = {
-	"mach": {"mach", "machnumber"},
-	"angle": {
-		"aoa", "alpha", "angle", "angleofattack", "angleofattackdeg",
-		"angleattack", "angleattackdeg",
-	},
-	"reynolds": {"re", "reynolds", "reynoldsnumber"},
-	"cd": {"cd", "dragcoefficient", "coefficientofdrag"},
-}
-
-
-def _normalise_header(header):
-	return re.sub(r"[^a-z0-9]", "", header.lower())
-
+def _p(path):
+    """Parse a CSV with explicit Mach, AoA, and drag-coefficient columns."""
+    with Path(path).open("r",newline="",encoding="utf-8-sig") as s:
+        r=csv.DictReader(s)
+        if r.fieldnames is None: return [],[],{}
+        f=[n for n in r.fieldnames if n is not None]; hm={_n(n):n for n in f}
+        k1=next((hm[a] for a in ("mach","machnumber") if a in hm),None); k2=next((hm[a] for a in ("aoa","alpha","angle","angleofattack","angleattack") if a in hm),None); k3=next((hm[a] for a in ("cd","dragcoefficient","coefficientofdrag") if a in hm),None)
+        g={}
+        for row in r:
+            try: m=float(row[k1]); a=float(row[k2]); c=float(row[k3])
+            except (KeyError,TypeError,ValueError): continue
+            g.setdefault(m,{})[a]=c
+    return ([],[],{}) if not g else (sorted(g),sorted({a for v in g.values() for a in v}),g)
 
 class DragTable:
-	"""CSV-backed rectangular data set with trilinear Cd interpolation.
+    """Load a drag table from CSV data and interpolate Cd for arbitrary Mach and AoA values."""
+    def __init__(self,csv_path):
+        p=Path(csv_path)
+        if not p.exists(): raise FileNotFoundError(f"CSV not found: {p}")
+        m=_m(p)
+        self.mach_values,self.aoa_values,self.grid=(m[0],m[1],m[2]) if m[2] else _p(p)
+        self.points,self.values=_g(self.grid); self._interp=LinearNDInterpolator(self.points,self.values,fill_value=float("nan"))
+    def interpolate(self,m,a):
+        """Return the drag coefficient interpolated for the specified Mach and AoA."""
+        m=float(m); a=float(a)
+        if m in self.grid and a in self.grid[m]: return float(self.grid[m][a])
+        return float(self._interp((m,a)))
 
-	The CSV must have columns identifying Mach, angle of attack, Reynolds number,
-	and Cd. Inputs use the same units as the CSV. Values outside the data range
-	are rejected rather than extrapolated.
-	"""
+def interpolate_cd(csv_path,m,a):
+    """Convenience wrapper that loads a drag table and interpolates a single Cd value."""
+    return DragTable(csv_path).interpolate(m,a)
 
-	def __init__(self, rows):
-		self.values = {}
-		for mach, angle, reynolds, cd in rows:
-			point = (float(mach), float(angle), float(reynolds))
-			cd = float(cd)
-			if not all(math.isfinite(value) for value in point + (cd,)):
-				raise ValueError("CSV data must contain finite numbers")
-			if point in self.values and self.values[point] != cd:
-				raise ValueError("Conflicting Cd values for point {}".format(point))
-			self.values[point] = cd
+def main():
+    """Command-line entry point for interpolating Cd from a CSV file."""
+    p=argparse.ArgumentParser(description="Interpolate a drag coefficient from a Mach/AoA CSV")
+    p.add_argument("csv_path",help="Path to the CSV file"); p.add_argument("mach",type=float,help="Mach number to evaluate"); p.add_argument("aoa",type=float,help="Angle of attack in degrees")
+    a=p.parse_args(); print(f"Cd = {interpolate_cd(a.csv_path,a.mach,a.aoa):.12g}")
+if __name__=="__main__": main()
 
-		if not self.values:
-			raise ValueError("CSV contains no data rows")
-		self.axes = tuple(
-			sorted({point[index] for point in self.values}) for index in range(3)
-		)
-
-	@classmethod
-	def from_csv(cls, filename):
-		"""Load a CSV whose header names its Mach, AoA, Reynolds, and Cd columns."""
-		with Path(filename).open("r", newline="", encoding="utf-8-sig") as stream:
-			reader = csv.DictReader(stream)
-			if not reader.fieldnames:
-				raise ValueError("CSV must contain a header row")
-
-			headers = {_normalise_header(name): name for name in reader.fieldnames}
-			columns = {}
-			for field, aliases in _COLUMN_ALIASES.items():
-				matches = [headers[name] for name in aliases if name in headers]
-				if not matches:
-					raise ValueError(
-						"CSV is missing the {} column (found: {})".format(
-							field, ", ".join(reader.fieldnames)
-						)
-					)
-				columns[field] = matches[0]
-
-			rows = []
-			for line_number, row in enumerate(reader, start=2):
-				try:
-					rows.append(
-						tuple(
-							float(row[columns[field]])
-							for field in ("mach", "angle", "reynolds", "cd")
-						)
-					)
-				except (TypeError, ValueError, KeyError) as error:
-					raise ValueError(
-						"Invalid numeric data on CSV line {}".format(line_number)
-					) from error
-		return cls(rows)
-
-	@staticmethod
-	def _bracket(axis, value, label):
-		if not math.isfinite(value):
-			raise ValueError("{} must be finite".format(label))
-		if value < axis[0] or value > axis[-1]:
-			raise ValueError("{} is outside the range in the CSV".format(label))
-		if value in axis:
-			return value, value
-		for low, high in zip(axis, axis[1:]):
-			if low < value < high:
-				return low, high
-		raise ValueError("Could not interpolate {}".format(label))
-
-	def interpolate_cd(self, mach, angle_of_attack, reynolds):
-		"""Return trilinearly interpolated Cd at the supplied conditions."""
-		query = (float(mach), float(angle_of_attack), float(reynolds))
-		labels = ("Mach", "angle of attack", "Reynolds number")
-		bounds = tuple(
-			self._bracket(axis, value, label)
-			for axis, value, label in zip(self.axes, query, labels)
-		)
-
-		result = 0.0
-		for m in set(bounds[0]):
-			for angle in set(bounds[1]):
-				for re_value in set(bounds[2]):
-					point = (m, angle, re_value)
-					if point not in self.values:
-						raise ValueError(
-							"CSV is missing a grid point needed for interpolation: {}".format(
-								point
-							)
-						)
-					weight = 1.0
-					for value, (low, high), corner in zip(query, bounds, point):
-						if low != high:
-							weight *= (
-								(high - value) / (high - low)
-								if corner == low
-								else (value - low) / (high - low)
-							)
-					result += weight * self.values[point]
-		return result
-
-
-def interpolate_cd(filename, mach, angle_of_attack, reynolds):
-	"""Convenience function to load a CSV and interpolate one Cd value."""
-	return DragTable.from_csv(filename).interpolate_cd(
-		mach, angle_of_attack, reynolds
-	)
-
-
-def drag_force_vector(cd, velocity, density, area):
-	"""Return the drag-force vector for Cd and a velocity vector."""
-	velocity = tuple(float(component) for component in velocity)
-	speed = math.sqrt(sum(component ** 2 for component in velocity))
-	if speed == 0:
-		return tuple(0.0 for _ in velocity)
-	scale = -0.5 * float(density) * float(area) * float(cd) * speed
-	return tuple(scale * component for component in velocity)
 

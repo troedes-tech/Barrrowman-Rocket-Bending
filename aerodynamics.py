@@ -1,32 +1,6 @@
 import numpy as np
 from components import *
 
-# REVIEW NOTES (against the extended Barrowman/OpenRocket equations):
-# * C_n_total() applies C_na() and C_n_lift() to every rocket.parts entry.
-#   Cylindrical body sections do not contribute the same Barrowman terms as
-#   nose cones/transitions; use component-specific terms as OpenRocket does.
-# * C_n_lift() uses a hard-coded K=1.1.  This is not a universal Barrowman
-#   constant; its value and geometry must match the component model.
-# * C_m_total() is mathematically incomplete: it sums C_ma values but omits
-#   each component's moment arm to the chosen reference point.  It therefore
-#   is not the total pitching-moment coefficient.
-# * cp() is undefined at alpha == 0 because both its numerator/denominator can
-#   be zero.  It also needs the same component reference convention and fin
-#   terms as C_n_total() to avoid a biased CP.
-# * cp_fins() uses the subsonic expression through Mach 2.  The supersonic
-#   Barrowman expression starts above Mach 1; the transonic region needs the
-#   OpenRocket interpolation rather than a Mach-2 switch.
-# * cd_vk() returns zero below the first data-table Mach number.  That removes
-#   nose pressure drag at low Mach and should be replaced by the model's
-#   subsonic/low-Mach extrapolation.
-# * skin_friction() uses one rocket-length Reynolds number and one Cf for all
-#   surfaces.  OpenRocket evaluates wetted components with their appropriate
-#   characteristic lengths/regimes, so this is only an approximation.
-# * cd_boattail()/cd_base() require an area-convention check: scaling the
-#   boattail by area_l can double-count or omit aft-base drag depending on the
-#   component definition.
-# * pitch_damp(), equil_roll(), and roll_damp() lack `self`; calling them on an
-#   instance raises TypeError.  They are stubs, not implemented equations.
 
 class aerodynamics:
     def __init__(self, Aref, mach, alpha, kv, temp, gamma=1.4, R_const=287):

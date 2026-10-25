@@ -1,5 +1,7 @@
 import numpy as np
 
+
+
 class nosecone_vk:
     def __init__(self, radius, length):
         """Model a von Karman nose cone.

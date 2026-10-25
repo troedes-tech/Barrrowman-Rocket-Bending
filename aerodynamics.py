@@ -132,7 +132,7 @@ class aerodynamics:
                 if part.length > 0 and part.radius > 0:
                     k_lift = 1.1
                     if area_change and np.isclose(part.area_l, part.area_0):
-                        k_lift = 0.6 #TODO where did AI get this
+                        k_lift = 1.1
                     cn_total += self.C_n_lift(part, K=k_lift)
 
         if getattr(rocket, 'fins', None) is not None and getattr(rocket, 'fin_tube', None) is not None:
@@ -496,7 +496,7 @@ class aerodynamics:
         """
         # dont add this on top of boattail drag I believe #TODO double check
         if self.mach < 1:
-            cd = 0.12+10.13*self.mach**2
+            cd = 0.12+0.13*self.mach**2
         else:
             cd = 0.25/self.mach
         return cd

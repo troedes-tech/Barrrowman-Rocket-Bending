@@ -1,8 +1,46 @@
+import time
+
 import numpy as np
+
+try:
+    from scipy.interpolate import CubicSpline, PchipInterpolator, RegularGridInterpolator
+except ImportError:  # pragma: no cover - optional dependency for cubic interpolation
+    CubicSpline = None
+    PchipInterpolator = None
+    RegularGridInterpolator = None
+
+
+def calculate_runtime(start_time, end_time=None):
+    """Return the elapsed runtime in seconds.
+
+    Parameters
+    ----------
+    start_time : float
+        The start timestamp returned by ``time.perf_counter()``.
+    end_time : float, optional
+        The end timestamp. If omitted, the current time is used.
+
+    Returns
+    -------
+    float
+        The elapsed time in seconds, clamped to a non-negative value.
+
+    Raises
+    ------
+    ValueError
+        If ``start_time`` is ``None``.
+    """
+    if start_time is None:
+        raise ValueError("start_time is required.")
+
+    if end_time is None:
+        end_time = time.perf_counter()
+
+    return max(0.0, end_time - start_time)
 
 
 def load_drag_csv(csv_path):
-    """Load a drag polar CSV and return a structured NumPy array.
+    """Load a drag-polar CSV file into a structured NumPy array.
 
     Parameters
     ----------
@@ -12,13 +50,13 @@ def load_drag_csv(csv_path):
     Returns
     -------
     numpy.ndarray
-        Structured NumPy array with columns including mach, aoa_deg,
-        cd_force_axial, and cp.
+        A structured NumPy array with at least the columns ``mach``,
+        ``aoa_deg``, ``cd_force_axial``, and ``cp``.
 
     Raises
     ------
     ValueError
-        If the file has no rows or is missing required columns.
+        If the CSV is empty or missing any required column.
     """
     data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=float)
     if data.size == 0:
@@ -33,78 +71,129 @@ def load_drag_csv(csv_path):
 
 
 def _interp1d(x, y, xq):
-    """Linearly interpolate a scalar value from a 1D dataset.
+    """Interpolate a scalar value from a one-dimensional dataset.
 
     Parameters
     ----------
     x : array-like
-        Monotonically increasing x-coordinates.
+        The x-coordinates for the data. Values are sorted internally and may be
+        non-decreasing with duplicate entries handled gracefully.
     y : array-like
-        Values corresponding to x.
+        The corresponding y-values for ``x``.
     xq : float
-        Query x value to interpolate.
+        The x-value at which to evaluate the interpolated result.
 
     Returns
     -------
     float
-        Interpolated y value at xq.
+        The interpolated y-value at ``xq``.
+
+    Raises
+    ------
+    ValueError
+        If either input array is empty, they do not have matching shapes, or
+        ``xq`` is NaN.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
 
+    if x.size == 0 or y.size == 0:
+        raise ValueError("Interpolation arrays cannot be empty.")
+    if x.shape != y.shape:
+        raise ValueError("Interpolation x and y arrays must have the same shape.")
+
+    if x.size == 1:
+        return float(y[0])
+
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
+
+    # Guard against repeated x values while keeping the first occurrence.
+    unique_x, first_idx = np.unique(x, return_index=True)
+    if unique_x.size != x.size:
+        x = unique_x
+        y = y[first_idx]
+
+    xq = float(xq)
+    if np.isnan(xq):
+        raise ValueError("Interpolation query xq cannot be NaN.")
     if xq <= x[0]:
-        return y[0]
+        return float(y[0])
     if xq >= x[-1]:
-        return y[-1]
+        return float(y[-1])
+
+    if PchipInterpolator is not None:
+        return float(PchipInterpolator(x, y)(xq))
+
+    if CubicSpline is not None:
+        return float(CubicSpline(x, y)(xq))
 
     idx = np.searchsorted(x, xq)
     if idx == 0:
-        return y[0]
+        return float(y[0])
     if idx >= len(x):
-        return y[-1]
+        return float(y[-1])
 
     x0, x1 = x[idx - 1], x[idx]
     y0, y1 = y[idx - 1], y[idx]
     if x1 == x0:
-        return y0
+        return float(y0)
 
-    return y0 + (y1 - y0) * ((xq - x0) / (x1 - x0))
+    return float(y0 + (y1 - y0) * ((xq - x0) / (x1 - x0)))
 
 
 def _interp2d(x_vals, y_vals, z_matrix, xq, yq):
-    """Perform bilinear interpolation on a regular 2D grid.
+    """Interpolate a value on a regular 2D grid.
+
+    The function attempts to use SciPy's regular-grid interpolator when it is
+    available and a higher-order cubic interpolation is possible. If SciPy is
+    unavailable, it falls back to bilinear interpolation over the local grid cell.
 
     Parameters
     ----------
     x_vals : array-like
-        x-axis coordinate values for the grid.
+        Coordinates along the first axis of the grid.
     y_vals : array-like
-        y-axis coordinate values for the grid.
+        Coordinates along the second axis of the grid.
     z_matrix : array-like
-        2D array of values indexed as z_matrix[x_index, y_index].
+        Two-dimensional values defined on the ``(x_vals, y_vals)`` grid.
     xq : float
-        Query x value.
+        Query x-coordinate.
     yq : float
-        Query y value.
+        Query y-coordinate.
 
     Returns
     -------
     float
-        Interpolated value at (xq, yq).
+        The interpolated z-value at ``(xq, yq)``.
+
+    Raises
+    ------
+    ValueError
+        If either interpolation axis is empty.
     """
     x_vals = np.asarray(x_vals, dtype=float)
     y_vals = np.asarray(y_vals, dtype=float)
     z_matrix = np.asarray(z_matrix, dtype=float)
 
-    if xq <= x_vals[0]:
-        xq = x_vals[0]
-    elif xq >= x_vals[-1]:
-        xq = x_vals[-1]
+    if x_vals.size == 0 or y_vals.size == 0:
+        raise ValueError("Interpolation axes cannot be empty.")
 
-    if yq <= y_vals[0]:
-        yq = y_vals[0]
-    elif yq >= y_vals[-1]:
-        yq = y_vals[-1]
+    xq = float(np.clip(xq, x_vals[0], x_vals[-1]))
+    yq = float(np.clip(yq, y_vals[0], y_vals[-1]))
+
+    if RegularGridInterpolator is not None and x_vals.size > 2 and y_vals.size > 2:
+        interp = RegularGridInterpolator(
+            (x_vals, y_vals),
+            z_matrix,
+            method="pchip",
+            bounds_error=False,
+            fill_value=np.nan,
+        )
+        result = interp((xq, yq))
+        if np.isfinite(result):
+            return float(result)
 
     x_idx = np.searchsorted(x_vals, xq)
     y_idx = np.searchsorted(y_vals, yq)
@@ -143,37 +232,40 @@ def _interp2d(x_vals, y_vals, z_matrix, xq, yq):
 
     z0 = z00 * (1.0 - tx) + z10 * tx
     z1 = z01 * (1.0 - tx) + z11 * tx
-    return z0 * (1.0 - ty) + z1 * ty
+    return float(z0 * (1.0 - ty) + z1 * ty)
 
 
 def interpolate_drag_csv(csv_path, mach=None, aoa_deg=None, columns=("cd_force_axial", "cp")):
     """Interpolate drag-polar values from a CSV file.
 
-    Provide both mach and aoa_deg for a full 2D interpolation. If only one is
-    provided, the function interpolates along the other axis using the nearest
-    available value in the table.
+    Provide both ``mach`` and ``aoa_deg`` for a full 2D interpolation. If only
+    one input is supplied, the function interpolates along the remaining axis
+    using the available data in the table.
 
     Parameters
     ----------
     csv_path : str or path-like
         Path to the drag-polar CSV file.
     mach : float, optional
-        Mach number to query. If omitted, interpolation is done across mach.
+        Mach number to query. If omitted, interpolation is performed across the
+        Mach axis.
     aoa_deg : float, optional
-        Angle of attack in degrees to query. If omitted, interpolation is done
-        across angle of attack.
+        Angle of attack in degrees to query. If omitted, interpolation is
+        performed across the angle-of-attack axis.
     columns : tuple of str, optional
         Column names to interpolate from the CSV data.
 
     Returns
     -------
     dict
-        Mapping of each requested column name to its interpolated value(s).
+        A dictionary mapping each requested column name to its interpolated
+        value.
 
     Raises
     ------
     ValueError
-        If no interpolation inputs are supplied or a requested column is absent.
+        If neither ``mach`` nor ``aoa_deg`` is supplied, or if a requested
+        column is not present in the CSV.
     """
     data = load_drag_csv(csv_path)
 
@@ -238,6 +330,7 @@ def interpolate_drag_csv(csv_path, mach=None, aoa_deg=None, columns=("cd_force_a
 
 
 
+start_time = time.perf_counter()
 result = interpolate_drag_csv(
     r"drag_report.csv",
     mach=0.2,
@@ -245,8 +338,7 @@ result = interpolate_drag_csv(
     columns=("cd_force_axial", "cp"),
 )
 print(result)
-
-
+print(f"Runtime: {calculate_runtime(start_time):.6f} seconds")
 
 
 

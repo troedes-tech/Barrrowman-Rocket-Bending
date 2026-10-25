@@ -10,7 +10,7 @@ import math
 
 import aerodynamics as aero_module
 from aerodynamics import *  # noqa: F401,F403 - retain the module's public API
-from components import fin, nosecone_vk, tube
+from components import fin, nosecone_vk, tube, rocket
 
 
 
@@ -33,7 +33,8 @@ def main():
     # Keep the constructor convention used by the original example.
     aero = aerodynamics(area, mach, aoa, kv, temperature)
 
-    rocket = rocket(fins, parts, roughness)
+    # HPRs most recent rocket
+    meridian = rocket(fins, parts, roughness)
 
     csv_path = "drag_report.csv"
     with open(csv_path, "w", newline="") as csvfile:
@@ -53,10 +54,10 @@ def main():
                 aero.mach = i
                 aero.alpha = math.radians(j)
                 # Calculate and report the drag for the current conditions
-                cd_force_axial = aero.cd_total(rocket)
-                cd_force_normal = aero.C_n_total(rocket)
-                cd_moment = aero.C_m_total(rocket)
-                cp = aero.cp(rocket)
+                cd_force_axial = aero.cd_total(meridian)
+                cd_force_normal = aero.C_n_total(meridian)
+                cd_moment = aero.C_m_total(meridian)
+                cp = aero.cp(meridian)
 
                 writer.writerow([
                     i,

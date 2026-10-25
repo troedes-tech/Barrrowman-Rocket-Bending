@@ -39,7 +39,7 @@ class aerodynamics:
             return 0.0
 
         beta = np.sqrt(np.abs(1.0 - self.mach ** 2))
-        if self.mach < 1.0:
+        if self.mach <= 1.0:
             denom = 1.0 + np.sqrt(1.0 + (beta * (fin.span ** 2) / (fin.area * np.cos(fin.Lc))) ** 2)
             c_na_single = (2.0 * np.pi * (fin.span ** 2) / self.Aref) / denom
         else:

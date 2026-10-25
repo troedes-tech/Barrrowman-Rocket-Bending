@@ -137,7 +137,8 @@ class rocket:
             if self.length <= fins.location and fins.location <= self.length + part.length:
                 self.fin_tube = part
             self.length += part.length
-            self.max_diameter = np.max(self.max_diameter,2*part.radius)
+            if self.max_diameter < 2*part.radius:
+                self.max_diameter = 2*part.radius
             self.Awet_body += part.Awet
 
         # Mathematical precondition: parts must be non-empty and have a

@@ -13,8 +13,14 @@ from aerodynamics import *  # noqa: F401,F403 - retain the module's public API
 from components import fin, nosecone_vk, tube, rocket
 
 
-
 def main():
+    """Generate a drag report CSV for a representative rocket across Mach and AOA sweep ranges.
+
+    The script builds a simple rocket geometry, configures a flight envelope, and
+    evaluates axial force, normal force, moment, and center of pressure coefficients
+    for each Mach and angle-of-attack combination. Results are written to
+    ``drag_report.csv`` in the working directory.
+    """
     radius = 0.155 / 2
     area = math.pi * radius**2
     nose = nosecone_vk(radius, 0.624)

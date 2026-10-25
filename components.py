@@ -2,6 +2,15 @@ import numpy as np
 
 class nosecone_vk:
     def __init__(self, radius, length):
+        """Model a von Karman nose cone.
+        
+            Args:
+                radius (float): Maximum nose radius.
+                length (float): Nose cone length.
+        
+            Returns:
+                None: Sets up nose cone geometry and derived aerodynamic properties.
+            """
         self.radius = radius
         self.length = length
         self.area_l = np.pi*radius**2
@@ -24,6 +33,14 @@ class nosecone_vk:
         self.Awet = 2*np.pi*np.trapezoid(r,x)   # Surface Area
 
     def r(self,x):
+        """Return the local radius at a given axial location.
+
+        Args:
+            x (float or np.ndarray): Axial position(s) measured from the nose tip.
+
+        Returns:
+            float or np.ndarray: Radius of the nose cone at the requested position(s).
+        """
         # function to find radius at a given x location
         r = self.radius*np.sqrt(np.acos(1-2*x/self.length)-0.5*np.sin(2*np.acos(1-2*x/self.length))/np.pi)
         return r
@@ -31,6 +48,15 @@ class nosecone_vk:
 
 class tube:
     def __init__(self, radius, length):
+        """Initialize a tube section.
+
+        Args:
+            radius (float): Tube radius.
+            length (float): Tube length.
+
+        Returns:
+            None: Stores the tube geometry, area, and centroid information.
+        """
         self.radius = radius
         self.length = length
         self.area_l = np.pi*radius**2
@@ -42,6 +68,16 @@ class tube:
 
 class nosecone_ogive:
     def __init__(self, radius, length, shape_factor):
+        """Initialize an ogive nose cone.
+
+        Args:
+            radius (float): Maximum radius of the ogive nose cone.
+            length (float): Length of the ogive nose cone.
+            shape_factor (float): Shape factor used to define the ogive profile.
+
+        Returns:
+            None: Stores the ogive dimensions, volume, and wetted area.
+        """
         self.radius = radius
         self.length = length
         self.area_l = np.pi*radius**2
@@ -62,6 +98,14 @@ class nosecone_ogive:
         self.shoulder_angle = -np.atan(2*(k-1)*length*radius/np.abs((k-2)*(length**2)-k*radius**2))
 
     def r(self,x):
+        """Return the local radius of the ogive profile at a given axial station.
+
+        Args:
+            x (float or np.ndarray): Axial station(s) from the nose tip.
+
+        Returns:
+            float or np.ndarray: Ogive radius at the requested station(s).
+        """
         # function to find radius at a given x location
         k = self.shape_factor
         r = np.sqrt(self.rho_squared-(self.length/k - x)**2) - np.sqrt(self.rho_squared-(self.length/k)**2)
@@ -70,6 +114,16 @@ class nosecone_ogive:
 class transition_ogive:
     #is assumed to be tangent ogive
     def __init__(self, radius_0, radius_l, length):
+        """Initialize an ogive transition.
+
+        Args:
+            radius_0 (float): Initial radius.
+            radius_l (float): Final radius.
+            length (float): Transition length.
+
+        Returns:
+            None: Stores transition parameters and calculated geometry.
+        """
         self.radius_0 = radius_0
         self.radius_l = radius_l
         self.radius = radius_l
@@ -89,6 +143,14 @@ class transition_ogive:
         self.Awet = 2*np.pi*np.trapezoid(r,x)   # Surface Area
 
     def r(self,x):
+        """Return the local radius of the transition section.
+
+        Args:
+            x (float or np.ndarray): Axial station(s) in the transition coordinate system.
+
+        Returns:
+            float or np.ndarray: Radius at the requested transition station(s).
+        """
         # function to find radius at a given x location
         r = np.sqrt(self.rho**2-((x+self.cutoff)-self.length)**2)- np.sqrt(self.rho**2-self.length**2)
         return r
@@ -96,6 +158,16 @@ class transition_ogive:
 
 class boattail:
     def __init__(self, radius_0, radius_l, length):
+        """Initialize a boattail section.
+
+        Args:
+            radius_0 (float): Forward radius.
+            radius_l (float): Rear radius.
+            length (float): Boattail length.
+
+        Returns:
+            None: Stores boattail dimensions and computed geometry.
+        """
         self.radius_0 = radius_0
         self.radius_l = radius_l
         self.radius = radius_0
@@ -109,6 +181,19 @@ class boattail:
 
 class fin:
     def __init__(self, root_chord, tip_chord, span, sweep_length, thickness, location):
+        """Initialize a trapezoidal fin.
+
+        Args:
+            root_chord (float): Root chord length.
+            tip_chord (float): Tip chord length.
+            span (float): Fin span.
+            sweep_length (float): Sweep length.
+            thickness (float): Fin thickness.
+            location (float): Position of the fin relative to the rocket tip.
+
+        Returns:
+            None: Stores fin dimensions and derived planform metrics.
+        """
         self.root_chord = root_chord
         self.tip_chord = tip_chord
         self.span = span
@@ -126,6 +211,16 @@ class fin:
 
 class rocket:
     def __init__(self, fins, parts, roughness):
+        """Initialize a rocket model.
+
+        Args:
+            fins (fin): Fin definition used to locate the fin section.
+            parts (list): Rocket body sections.
+            roughness (float): Surface roughness value.
+
+        Returns:
+            None: Stores assembly length, diameter, wetted area, and fineness ratio.
+        """
         self.fins = fins
         self.parts = parts
         self.roughness = roughness

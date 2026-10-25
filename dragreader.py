@@ -2,7 +2,24 @@ import numpy as np
 
 
 def load_drag_csv(csv_path):
-    """Load a drag polar CSV and return a structured NumPy array."""
+    """Load a drag polar CSV and return a structured NumPy array.
+
+    Parameters
+    ----------
+    csv_path : str or path-like
+        Path to the CSV file containing drag-polar data.
+
+    Returns
+    -------
+    numpy.ndarray
+        Structured NumPy array with columns including mach, aoa_deg,
+        cd_force_axial, and cp.
+
+    Raises
+    ------
+    ValueError
+        If the file has no rows or is missing required columns.
+    """
     data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=float)
     if data.size == 0:
         raise ValueError(f"No data found in {csv_path}.")
@@ -16,7 +33,22 @@ def load_drag_csv(csv_path):
 
 
 def _interp1d(x, y, xq):
-    """Linear interpolation on a 1D array."""
+    """Linearly interpolate a scalar value from a 1D dataset.
+
+    Parameters
+    ----------
+    x : array-like
+        Monotonically increasing x-coordinates.
+    y : array-like
+        Values corresponding to x.
+    xq : float
+        Query x value to interpolate.
+
+    Returns
+    -------
+    float
+        Interpolated y value at xq.
+    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
 
@@ -40,7 +72,26 @@ def _interp1d(x, y, xq):
 
 
 def _interp2d(x_vals, y_vals, z_matrix, xq, yq):
-    """Bilinear interpolation from a regular 2D grid."""
+    """Perform bilinear interpolation on a regular 2D grid.
+
+    Parameters
+    ----------
+    x_vals : array-like
+        x-axis coordinate values for the grid.
+    y_vals : array-like
+        y-axis coordinate values for the grid.
+    z_matrix : array-like
+        2D array of values indexed as z_matrix[x_index, y_index].
+    xq : float
+        Query x value.
+    yq : float
+        Query y value.
+
+    Returns
+    -------
+    float
+        Interpolated value at (xq, yq).
+    """
     x_vals = np.asarray(x_vals, dtype=float)
     y_vals = np.asarray(y_vals, dtype=float)
     z_matrix = np.asarray(z_matrix, dtype=float)
@@ -96,12 +147,33 @@ def _interp2d(x_vals, y_vals, z_matrix, xq, yq):
 
 
 def interpolate_drag_csv(csv_path, mach=None, aoa_deg=None, columns=("cd_force_axial", "cp")):
-    """
-    Interpolate values from a drag-polar CSV.
+    """Interpolate drag-polar values from a CSV file.
 
-    Provide both mach and aoa_deg for a full 2D interpolation.
-    If only one is provided, the code interpolates along the other axis at the
-    closest available value in the table.
+    Provide both mach and aoa_deg for a full 2D interpolation. If only one is
+    provided, the function interpolates along the other axis using the nearest
+    available value in the table.
+
+    Parameters
+    ----------
+    csv_path : str or path-like
+        Path to the drag-polar CSV file.
+    mach : float, optional
+        Mach number to query. If omitted, interpolation is done across mach.
+    aoa_deg : float, optional
+        Angle of attack in degrees to query. If omitted, interpolation is done
+        across angle of attack.
+    columns : tuple of str, optional
+        Column names to interpolate from the CSV data.
+
+    Returns
+    -------
+    dict
+        Mapping of each requested column name to its interpolated value(s).
+
+    Raises
+    ------
+    ValueError
+        If no interpolation inputs are supplied or a requested column is absent.
     """
     data = load_drag_csv(csv_path)
 
